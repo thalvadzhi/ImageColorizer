@@ -7,6 +7,7 @@ from skimage.segmentation import mark_boundaries
 from texture_extraction import calculate_centroid_from_segment
 from sklearn.cluster import KMeans
 import math
+
 def get_average_luminance_per_segment(img, number_of_segments):
     segments = segment_image(img, number_of_segments)
     pixels_per_segment = get_pixels_for_segment(segments)

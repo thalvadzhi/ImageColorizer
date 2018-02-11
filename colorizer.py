@@ -1,25 +1,15 @@
-from matplotlib.colors import Colormap
 from skimage.segmentation import slic
-from skimage.data import imread
-from skimage.util import img_as_float, img_as_ubyte
-from skimage.segmentation import mark_boundaries
-import matplotlib.pyplot as plt
-from PIL import Image
-import numpy as np
 from sklearn.decomposition import PCA
-
-from color_space_converter import *
 from sklearn.svm import SVR
 import os
 from sklearn.externals import joblib
-from sklearn.neighbors import KNeighborsClassifier
-from color_smoothing import get_neighbouring_segments, smooth_colors
-from sklearn.linear_model import Ridge, Lasso
+from color_smoothing import smooth_colors
 from texture_extraction import *
 from sklearn.neural_network import MLPRegressor
-
-PATH = "/home/thalvadzhiev/Documents/{0}"
-path_man_mirror = PATH.format("nature2.jpg")
+from color_space_converter import rgb_to_gray
+import numpy as np
+from color_space_converter import *
+import matplotlib.pyplot as plt
 
 
 def segment_image(image, number_of_segments):
@@ -69,6 +59,7 @@ def get_histogram_per_segment(pixels_per_segment, yuv_img, n_bins):
         histograms.append(hist)
     return np.array(histograms)
 
+
 def get_descriptors_per_segment(img, pixels_per_segment):
     descriptors = []
     for segment in pixels_per_segment:
@@ -88,8 +79,8 @@ def get_lum_chrom_triple_image(path, number_of_segments, sample_size):
     yuv = rgb_to_yuv(img_as_float(img))
     return get_lum_chrom_triple_sample(yuv, sampled_segments)
 
-def get_lum_chrom_hist(path, number_of_segments, sample_size, n_bins):
 
+def get_lum_chrom_hist(path, number_of_segments, sample_size, n_bins):
     img = read_img(path)
     segments = segment_image(img, number_of_segments)
     pixels_per_segment = get_pixels_for_segment(segments)
@@ -102,12 +93,12 @@ def get_lum_chrom_hist(path, number_of_segments, sample_size, n_bins):
     lum_hist_desc = np.hstack((lum_hist, descriptors))
     return lum_hist_desc, a, b
 
+
 def predict_image(path, u_predictor, v_predictor, number_of_segments, sample_size, n_bins, pca, smoothing_limit):
     img = read_img(path)
-    segments = segment_image(img, number_of_segments)
+    segments = segment_image(rgb_to_gray(np.array(img)), number_of_segments)
     pixels_per_segment = get_pixels_for_segment(segments)
     descriptors = get_descriptors_per_segment(img, pixels_per_segment)
-
     sampled_segments = sample_segment_with(pixels_per_segment, sample_size)
     yuv_img = rgb_to_yuv(img_as_float(img))
     lum, u, v = get_lum_chrom_triple_sample(yuv_img, sampled_segments)
@@ -120,10 +111,6 @@ def predict_image(path, u_predictor, v_predictor, number_of_segments, sample_siz
     u_smoothed, v_smoothed = smooth_colors(u_predicted, v_predicted, segments, lum, smoothing_limit)
 
     return img, color_picture(yuv_img, u_smoothed, v_smoothed, pixels_per_segment)
-
-def predict_image_yuv(path, a_predictor, b_predictor, number_of_segments, sample_size, n_bins, pca):
-    color_map = (yuv_to_rgb, rgb_to_yuv)
-    return predict_image(path, a_predictor, b_predictor, number_of_segments, sample_size,  n_bins, pca)
 
 
 def color_picture(yuv_img_float, u_predicted, v_predicted, pixels_per_segment):
@@ -158,69 +145,57 @@ def generate_all_feature_vectors(path, number_of_segments, sample_size, n_bins):
 
 def train_svr(path, model_name, number_of_segments, sample_size, n_bins, retrain=False):
     if retrain:
-        LUM, A, B = generate_all_feature_vectors(path, number_of_segments, sample_size, n_bins)
-        a_svr = SVR(C=0.1, epsilon=0.03)
-        b_svr = SVR(C=0.1, epsilon=0.03)
+        lum_all, u_all, v_all = generate_all_feature_vectors(path, number_of_segments, sample_size, n_bins)
+        u_svr = SVR(C=0.1, epsilon=0.03)
+        v_svr = SVR(C=0.1, epsilon=0.03)
         pca = PCA(n_components=100)
         print("\nFitting PCA..")
-        pca.fit(LUM)
+        pca.fit(lum_all)
         print("Transforming with PCA..")
-        LUM = pca.transform(LUM)
+        lum_all = pca.transform(lum_all)
         print("Fitting model 1...")
-        a_svr.fit(LUM, A)
+        u_svr.fit(lum_all, u_all)
         print("Fitting model 2...")
-        b_svr.fit(LUM, B)
+        v_svr.fit(lum_all, v_all)
         print("Done!")
-        joblib.dump(a_svr, "models/cr/svr_a_" + model_name)
-        joblib.dump(b_svr, "models/br/svr_b_" + model_name)
+        joblib.dump(u_svr, "models/u/svr_a_" + model_name)
+        joblib.dump(v_svr, "models/v/svr_b_" + model_name)
         joblib.dump(pca, "models/pca/pca_" + model_name)
 
     else:
-        a_svr = joblib.load("models/cr/svr_a_" + model_name)
-        b_svr = joblib.load("models/br/svr_b_" + model_name)
+        u_svr = joblib.load("models/u/svr_a_" + model_name)
+        v_svr = joblib.load("models/v/svr_b_" + model_name)
         pca = joblib.load("models/pca/pca_" + model_name)
 
-    return a_svr, b_svr, pca
+    return u_svr, v_svr, pca
 
 
-def train_ridge_lasso(path, model_name, number_of_segments, sample_size, color_map, retrain=False):
+def train_mlp(path, model_name, number_of_segments, sample_size, n_bins, retrain=False):
     if retrain:
-        LUM, A, B = generate_all_feature_vectors(path, number_of_segments, sample_size, color_map)
-        a_svr = Ridge()
-        b_svr = Ridge()
-
-        print("\nFitting model...")
-        a_svr.fit(LUM, A)
-        b_svr.fit(LUM, B)
-        print("Done!")
-        joblib.dump(a_svr, "models/cr/ridge_a_" + model_name)
-        joblib.dump(b_svr, "models/br/ridge_b_" + model_name)
-    else:
-        a_svr = joblib.load("models/cr/ridge_a_" + model_name)
-        b_svr = joblib.load("models/br/ridge_b_" + model_name)
-
-    return a_svr, b_svr
-
-
-def train_mlp(path, model_name, number_of_segments, sample_size, color_map, n_bins, retrain=False):
-    if retrain:
-        LUM, A, B = generate_all_feature_vectors(path, number_of_segments, sample_size, color_map, n_bins)
-        a_svr = MLPRegressor(hidden_layer_sizes=200, activation="logistic", alpha=0.1)
-        b_svr = MLPRegressor(hidden_layer_sizes=200, activation="logistic", alpha=0.1)
-
+        lum_all, u_all, v_all = generate_all_feature_vectors(path, number_of_segments, sample_size, n_bins)
+        u_mlp = MLPRegressor(hidden_layer_sizes=(100, 100, 100), alpha=0.01)
+        v_mlp = MLPRegressor(hidden_layer_sizes=(100, 100, 100), alpha=0.01)
+        pca = PCA(n_components=100)
+        print("\nFitting PCA..")
+        pca.fit(lum_all)
+        print("Transforming with PCA..")
+        lum_all = pca.transform(lum_all)
         print("\nFitting model 1...")
-        a_svr.fit(LUM, A)
+        u_mlp.fit(lum_all, u_all)
         print("Done with model 1!")
         print("Fitting model 2...")
-        b_svr.fit(LUM, B)
+        v_mlp.fit(lum_all, v_all)
         print("Done!")
-        joblib.dump(a_svr, "models/cr/mlp_a_" + model_name)
-        joblib.dump(b_svr, "models/br/mlp_b_" + model_name)
-    else:
-        a_svr = joblib.load("models/cr/mlp_a_" + model_name)
-        b_svr = joblib.load("models/br/mlp_b_" + model_name)
+        joblib.dump(u_mlp, "models/u/mlp_a_" + model_name)
+        joblib.dump(v_mlp, "models/v/mlp_b_" + model_name)
+        joblib.dump(pca, "models/pca/pca_" + model_name)
 
-    return a_svr, b_svr
+    else:
+        u_mlp = joblib.load("models/u/mlp_a_" + model_name)
+        v_mlp = joblib.load("models/v/mlp_b_" + model_name)
+        pca = joblib.load("models/pca/pca_" + model_name)
+
+    return u_mlp, v_mlp, pca
 
 
 def main():
@@ -228,10 +203,10 @@ def main():
     sample_size = 300
     n_bins = 50
 
-    cr_svr, br_svr, pca = train_svr("/home/LinuxData/colorizer/recolorizer/data/train", "svr_landscapes_pca_500", number_of_segments,
-                               sample_size, n_bins, False)
-    img, predicted = predict_image("/home/LinuxData/colorizer/recolorizer/data/test/39373580184.jpg",
-                                       cr_svr, br_svr, number_of_segments, sample_size, n_bins, pca, 50)
+    u_predictor, b_predictor, pca = train_mlp("data/landscapes/train", "landscapes_desc_hist",
+                                              number_of_segments, sample_size, n_bins, False)
+    img, predicted = predict_image("data/landscapes/test/39373580184.jpg",
+                                   u_predictor, b_predictor, number_of_segments, sample_size, n_bins, pca, 80)
     f, ax = plt.subplots(1, 2)
     ax[0].imshow(img)
     ax[1].imshow(predicted)

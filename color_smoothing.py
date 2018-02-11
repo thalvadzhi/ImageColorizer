@@ -2,6 +2,7 @@ import numpy as np
 import math
 from constants import *
 
+
 def get_neighbouring_segments(segments, lum, limit):
     number_of_segments = np.max(segments) + 1
     neighbours = [set() for _ in range(number_of_segments)]
@@ -19,6 +20,7 @@ def get_neighbouring_segments(segments, lum, limit):
                 neighbours[adj_value].add(value)
 
     return neighbours
+
 
 def smooth_colors(predicted_u, predicted_v, segments, lum, limit):
     smoothed_u = np.copy(predicted_u)

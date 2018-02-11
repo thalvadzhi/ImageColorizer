@@ -1,20 +1,5 @@
 import cv2
-from color_space_converter import *
-import matplotlib.pyplot as plt
-# img = cv2.imread("/home/LinuxData/colorizer/recolorizer/data/canyon/train/3734970863.jpg", 0)
 surf = cv2.xfeatures2d.SURF_create(hessianThreshold=5000, upright=True)
-# (kps, descs) = surf.detectAndCompute(img, None)
-# img2 = cv2.drawKeypoints(img,kps,None,(255,0,0),4)
-# plt.imshow(img[10:30, 10:30])
-# plt.show()
-# img_yuv = rgb_to_yuv(img)
-# img_t, _, _ = cv2.split(img_yuv)
-# p = cv2.KeyPoint(x=15, y=15, _size=20)
-# (kps, descs) = surf.compute(img[10:30, 10:30], keypoints=[p], descriptors=None)
-# # # surf.compute(img)
-# print("yeas")
-# plt.imshow(img)
-# plt.show()
 
 
 def get_descriptor_around_centroid(img, centroid, square_side):
@@ -29,6 +14,7 @@ def get_descriptor_around_centroid(img, centroid, square_side):
     key_point = cv2.KeyPoint(x=centroid_x, y=centroid_y, _size=delta)
     _, descs = surf.compute(img_window, keypoints=[key_point], descriptors=None)
     return descs
+
 
 def calculate_centroid_from_segment(pixels_in_segment):
     sum_x = sum(map(lambda point: point[0], pixels_in_segment))
